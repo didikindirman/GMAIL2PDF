@@ -33,6 +33,18 @@ RUN echo "Mengunduh paket wkhtmltopdf..." && \
     dpkg -i /tmp/wkhtmltox.deb || apt-get install -f -y && \
     rm /tmp/wkhtmltox.deb
 
+# Langkah 3: Symlink/Pintasan agar pdfkit dapat menemukan biner (PENTING!)
+# wkhtmltopdf mungkin terinstal di /usr/local/bin/ atau /usr/bin/. Symlink memastikan wkhtmltopdf
+# dapat diakses di path yang dicari oleh pdfkit.
+RUN if [ -f /usr/local/bin/wkhtmltopdf ]; then \
+        ln -s /usr/local/bin/wkhtmltopdf /usr/bin/wkhtmltopdf; \
+    elif [ -f /usr/bin/wkhtmltopdf ]; then \
+        echo "wkhtmltopdf sudah ada di /usr/bin"; \
+    else \
+        echo "wkhtmltopdf tidak ditemukan di path umum. Mencoba symlink dari /usr/local/bin/wkhtmltopdf."; \
+        ln -s /usr/local/bin/wkhtmltopdf /usr/bin/wkhtmltopdf; \
+    fi
+
 # Atur direktori kerja utama di dalam container
 WORKDIR /app
 
