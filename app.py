@@ -10,13 +10,22 @@ import re
 app = Flask(__name__)
 
 # --- Configuration for wkhtmltopdf ---
-# The Dockerfile ensures 'wkhtmltopdf' is installed and available in the system PATH.
+# PENTING: Tentukan path biner secara eksplisit, karena wkhtmltopdf sering
+# diinstal di /usr/local/bin/ setelah instalasi paket manual (.deb)
+WKHTMLTOPDF_PATH = '/usr/local/bin/wkhtmltopdf' 
+
 try:
-    # pdfkit configuration uses the executable name 'wkhtmltopdf'
-    config = pdfkit.configuration(wkhtmltopdf='wkhtmltopdf')
+    # pdfkit configuration menggunakan path biner yang sudah ditentukan
+    config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
+    # Verifikasi bahwa biner ditemukan saat server dimulai
+    if not os.path.exists(WKHTMLTOPDF_PATH):
+        print(f"ERROR: wkhtmltopdf biner tidak ditemukan di {WKHTMLTOPDF_PATH}. Server mungkin akan gagal.")
+        config = None
+    else:
+        print(f"INFO: wkhtmltopdf berhasil dikonfigurasi menggunakan path: {WKHTMLTOPDF_PATH}")
 except OSError as e:
-    # Log an error if the binary is not found (indicates a Docker or installation issue)
-    print(f"ERROR: Failed to configure pdfkit. Check if wkhtmltopdf is installed in the container. {e}")
+    # Log an error jika konfigurasi gagal karena alasan lain
+    print(f"ERROR: Gagal mengonfigurasi pdfkit. {e}")
     config = None
 
 # --- EML PARSING FUNCTION ---
@@ -116,8 +125,9 @@ def convert_eml():
     if not request.data:
         return jsonify({"error": "No EML content provided in the request body."}), 400
     
+    # Cek konfigurasi wkhtmltopdf
     if config is None:
-        return jsonify({"error": "Server configuration error: PDF generation is not properly set up."}), 500
+        return jsonify({"error": f"Server error: PDF generation is not properly set up. wkhtmltopdf not found at {WKHTMLTOPDF_PATH}."}), 500
         
     try:
         eml_bytes = request.data
@@ -154,7 +164,9 @@ def convert_eml():
 # Health check endpoint (optional but good for PaaS monitoring)
 @app.route('/', methods=['GET'])
 def home():
-    return "EML to PDF Converter API is running. Use the /convert endpoint with a POST request.", 200
+    # Gunakan WKHTMLTOPDF_PATH untuk diagnostik
+    status = "OK" if config else "ERROR (wkhtmltopdf not found)"
+    return f"EML to PDF Converter API is running. Status: {status}. Path: {WKHTMLTOPDF_PATH}", 200
 
 if __name__ == '__main__':
     # Get port from environment variable (standard for Render, Heroku, etc.)

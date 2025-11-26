@@ -33,7 +33,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     # --- PERBAIKAN PATH (PENTING) ---
     # Buat symlink agar biner wkhtmltopdf dapat ditemukan di PATH standar
-    ln -s /usr/local/bin/wkhtmltopdf /usr/bin/wkhtmltopdf
 
 # Atur direktori kerja utama di dalam container
 WORKDIR /app
