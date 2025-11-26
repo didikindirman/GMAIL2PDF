@@ -10,23 +10,34 @@ import re
 app = Flask(__name__)
 
 # --- Configuration for wkhtmltopdf ---
-# PENTING: Tentukan path biner secara eksplisit, karena wkhtmltopdf sering
-# diinstal di /usr/local/bin/ setelah instalasi paket manual (.deb)
-WKHTMLTOPDF_PATH = '/usr/local/bin/wkhtmltopdf' 
+# Daftar path biner yang mungkin (paling umum setelah instalasi .deb)
+WKHTMLTOPDF_PATHS = [
+    '/usr/local/bin/wkhtmltopdf', # Default path untuk paket yang kita unduh
+    '/usr/bin/wkhtmltopdf'        # Path standar yang sering digunakan oleh system PATH
+]
 
-try:
-    # pdfkit configuration menggunakan path biner yang sudah ditentukan
-    config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
-    # Verifikasi bahwa biner ditemukan saat server dimulai
-    if not os.path.exists(WKHTMLTOPDF_PATH):
-        print(f"ERROR: wkhtmltopdf biner tidak ditemukan di {WKHTMLTOPDF_PATH}. Server mungkin akan gagal.")
-        config = None
-    else:
-        print(f"INFO: wkhtmltopdf berhasil dikonfigurasi menggunakan path: {WKHTMLTOPDF_PATH}")
-except OSError as e:
-    # Log an error jika konfigurasi gagal karena alasan lain
-    print(f"ERROR: Gagal mengonfigurasi pdfkit. {e}")
-    config = None
+config = None
+WKHTMLTOPDF_PATH = None
+
+for path in WKHTMLTOPDF_PATHS:
+    try:
+        # Periksa apakah file benar-benar ada di path ini
+        if os.path.exists(path):
+            # Coba konfigurasikan pdfkit dengan path ini
+            config = pdfkit.configuration(wkhtmltopdf=path)
+            WKHTMLTOPDF_PATH = path
+            print(f"INFO: wkhtmltopdf berhasil dikonfigurasi menggunakan path: {path}")
+            break # Berhasil, keluar dari loop
+        else:
+            print(f"DEBUG: Biner tidak ditemukan di {path}. Mencoba path berikutnya.")
+    except OSError as e:
+        # Ini menangani kasus di mana biner ditemukan tetapi gagal dijalankan 
+        # (misalnya masalah izin atau dependensi runtime yang tidak terdeteksi)
+        print(f"ERROR: Gagal saat mencoba {path} (OSError). Error: {e}")
+        continue # Coba path berikutnya
+
+if config is None:
+    print(f"ERROR: pdfkit gagal dikonfigurasi setelah mencoba semua path. Server mungkin akan gagal.")
 
 # --- EML PARSING FUNCTION ---
 def eml_to_html(eml_content):
@@ -127,7 +138,7 @@ def convert_eml():
     
     # Cek konfigurasi wkhtmltopdf
     if config is None:
-        return jsonify({"error": f"Server error: PDF generation is not properly set up. wkhtmltopdf not found at {WKHTMLTOPDF_PATH}."}), 500
+        return jsonify({"error": f"Server error: PDF generation is not properly set up. wkhtmltopdf not found. Last tried path: {WKHTMLTOPDF_PATH}"}), 500
         
     try:
         eml_bytes = request.data
@@ -166,7 +177,8 @@ def convert_eml():
 def home():
     # Gunakan WKHTMLTOPDF_PATH untuk diagnostik
     status = "OK" if config else "ERROR (wkhtmltopdf not found)"
-    return f"EML to PDF Converter API is running. Status: {status}. Path: {WKHTMLTOPDF_PATH}", 200
+    path_display = WKHTMLTOPDF_PATH if WKHTMLTOPDF_PATH else "None (Failed to find)"
+    return f"EML to PDF Converter API is running. Status: {status}. Path: {path_display}", 200
 
 if __name__ == '__main__':
     # Get port from environment variable (standard for Render, Heroku, etc.)
