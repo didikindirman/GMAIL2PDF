@@ -2,43 +2,97 @@ import os
 import email
 from email import policy
 import pdfkit
+from flask import Flask, request, send_file, jsonify
+from io import BytesIO
+import time
+import re
 
-# SET PATH wkhtmltopdf
-WKHTMLTOPDF_PATH = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
+app = Flask(__name__)
 
-def eml_to_pdf(eml_path, pdf_path):
-    with open(eml_path, 'rb') as f:
-        msg = email.message_from_binary_file(f, policy=policy.default)
+# --- Configuration for wkhtmltopdf ---
+# The Dockerfile ensures 'wkhtmltopdf' is installed and available in the system PATH.
+try:
+    # pdfkit configuration uses the executable name 'wkhtmltopdf'
+    config = pdfkit.configuration(wkhtmltopdf='wkhtmltopdf')
+except OSError as e:
+    # Log an error if the binary is not found (indicates a Docker or installation issue)
+    print(f"ERROR: Failed to configure pdfkit. Check if wkhtmltopdf is installed in the container. {e}")
+    config = None
 
-    sender = msg.get('From', '')
-    receiver = msg.get('To', '')
-    subject = msg.get('Subject', '')
-    date = msg.get('Date', '')
+# --- EML PARSING FUNCTION ---
+def eml_to_html(eml_content):
+    """
+    Parses the raw EML content (bytes) and extracts email details and body into an HTML string 
+    for proper PDF rendering. It prefers HTML body content over plain text.
+    """
+    f = BytesIO(eml_content)
+    # Use email.policy.default for robust header and structure decoding
+    msg = email.message_from_binary_file(f, policy=policy.default)
 
-    body = "<p>(No content)</p>"
+    # Extract email metadata
+    sender = msg.get('From', 'N/A')
+    receiver = msg.get('To', 'N/A')
+    subject = msg.get('Subject', 'No Subject')
+    date = msg.get('Date', 'N/A')
 
+    body = "<p>No readable content found.</p>"
+    
+    # Logic to find the best body part: HTML preferred, then Plain Text
     if msg.is_multipart():
+        # First attempt: find the HTML part
         for part in msg.walk():
-            if part.get_content_type() == "text/html":
-                body = part.get_content()
-                break
-            elif part.get_content_type() == "text/plain":
-                body = "<pre>" + part.get_content() + "</pre>"
-    else:
-        body = msg.get_content()
+            # Check for HTML content that is not an attached file
+            if part.get_content_type() == "text/html" and part.get_filename() is None:
+                try:
+                    body = part.get_content()
+                    break
+                except:
+                    pass # Continue searching or fall back
 
+        # If no HTML found, search for Plain Text part
+        if body == "<p>No readable content found.</p>":
+             for part in msg.walk():
+                if part.get_content_type() == "text/plain" and part.get_filename() is None:
+                    try:
+                        # Wrap plain text in <pre> tags to preserve line breaks
+                        body = "<pre>" + part.get_content() + "</pre>"
+                        break
+                    except:
+                        pass
+    else:
+        # Simple, non-multipart message
+        try:
+            content_type = msg.get_content_type()
+            if content_type == "text/html":
+                body = msg.get_content()
+            elif content_type == "text/plain":
+                body = "<pre>" + msg.get_content() + "</pre>"
+        except Exception:
+            body = "<p>Error extracting body content.</p>"
+
+    # --- Construct the final HTML structure for wkhtmltopdf ---
     html = f"""
     <html>
     <head>
         <meta charset="utf-8">
         <style>
-            body {{ font-family: Arial; }}
+            @page {{ margin: 1in; }} 
+            body {{ font-family: Arial, sans-serif; line-height: 1.5; }}
             .header {{
-                border-bottom: 1px solid #aaa;
+                border-bottom: 1px solid #ddd;
+                padding-bottom: 10px;
                 margin-bottom: 20px;
+                font-size: 10pt;
             }}
             .header p {{ margin: 4px 0; }}
+            .content {{ font-size: 11pt; }}
+            pre {{ 
+                white-space: pre-wrap; 
+                word-wrap: break-word; 
+                background-color: #f4f4f4;
+                padding: 10px;
+                border-radius: 4px;
+            }}
         </style>
     </head>
     <body>
@@ -48,15 +102,62 @@ def eml_to_pdf(eml_path, pdf_path):
             <p><b>Subject:</b> {subject}</p>
             <p><b>Date:</b> {date}</p>
         </div>
-        <div>{body}</div>
+        <div class="content">{body}</div>
     </body>
     </html>
     """
+    return html, subject
+    
 
-    pdfkit.from_string(html, pdf_path, configuration=config)
-    print(f"✅ PDF dibuat: {pdf_path}")
+@app.route('/convert', methods=['POST'])
+def convert_eml():
+    """API endpoint to receive EML content and return a PDF file."""
+    
+    if not request.data:
+        return jsonify({"error": "No EML content provided in the request body."}), 400
+    
+    if config is None:
+        return jsonify({"error": "Server configuration error: PDF generation is not properly set up."}), 500
+        
+    try:
+        eml_bytes = request.data
+        
+        # 1. Convert EML content to structured HTML
+        html_content, subject = eml_to_html(eml_bytes)
+        
+        # 2. Generate PDF bytes using pdfkit
+        # The second argument (False) tells pdfkit to return the PDF data as a binary string (bytes)
+        pdf_bytes = pdfkit.from_string(html_content, False, configuration=config)
+        
+        # 3. Create a clean and unique filename
+        # Clean special characters from the subject and add a timestamp
+        clean_subject = re.sub(r'[^\w\s-]', '', subject).strip()
+        filename_core = clean_subject.replace(' ', '_')[:50]
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"{filename_core}_{timestamp}.pdf"
 
+        # 4. Return PDF file as a response
+        # send_file requires a file-like object (BytesIO)
+        return send_file(
+            BytesIO(pdf_bytes),
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename
+        )
 
-if __name__ == "__main__":
-    os.makedirs("output", exist_ok=True)
-    eml_to_pdf("coba.eml", "output/contoh.pdf")
+    except Exception as e:
+        # Log the detailed error on the server side
+        print(f"Conversion Error: {e}")
+        # Return a standard JSON error response to the client
+        return jsonify({"error": f"Internal server error during conversion: {e}"}), 500
+
+# Health check endpoint (optional but good for PaaS monitoring)
+@app.route('/', methods=['GET'])
+def home():
+    return "EML to PDF Converter API is running. Use the /convert endpoint with a POST request.", 200
+
+if __name__ == '__main__':
+    # Get port from environment variable (standard for Render, Heroku, etc.)
+    port = int(os.environ.get('PORT', 8080))
+    print(f"Flask API running on 0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
