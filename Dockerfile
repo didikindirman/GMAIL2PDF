@@ -1,59 +1,43 @@
-# Gunakan image Python 3.11 versi slim untuk ukuran yang lebih kecil
-FROM python:3.11-slim
+# Menggunakan image dasar Python 3.11 Slim (Debian Bullseye)
+FROM python:3.11-slim-bullseye
 
-# Tambahkan ini untuk memastikan APT tidak menanyakan pertanyaan selama instalasi
+# Mengatur variabel lingkungan
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PORT=8080
 
-# --- Konfigurasi wkhtmltopdf untuk Instalasi Manual (.deb) ---
-# Tentukan TAG rilis wkhtmltopdf di GitHub. Ini adalah bagian PATH dari URL.
-ENV WKHTMLTOPDF_TAG=0.12.6.1-2
-# Nama file paket wkhtmltopdf yang lengkap.
-ENV WKHTMLTOPDF_PACKAGE_NAME=wkhtmltox_0.12.6.1-2.bullseye_amd64.deb
-
-# Langkah 1: Update APT dan instal utilitas dan dependensi rendering
+# Langkah 1: Instal dependensi sistem yang diperlukan oleh WeasyPrint (GTK+/Cairo/Pango)
+# Dependensi ini lebih mudah diinstal daripada dependensi Qt milik wkhtmltopdf.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        # Dependensi Core WeasyPrint (Cairo, Pango, GDK-Pixbuf)
+        libxml2-dev \
+        libxslt1-dev \
+        libffi-dev \
+        libcairo2 \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libpangocairo-1.0-0 \
+        libgdk-pixbuf2.0-0 \
+        # Utilitas Umum
         wget \
-        dpkg \
         fontconfig \
-        libxrender1 \
-        libxtst6 \
         xfonts-base \
-        libssl3 && \
-    apt-get clean && \
+        # Bersihkan cache APT
+        && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Langkah 2: Unduh dan Instal paket wkhtmltopdf (.deb)
-RUN echo "Mengunduh paket wkhtmltopdf..." && \
-    # Menggunakan bendera -O untuk menyimpan file dengan nama target di /tmp/
-    wget -O /tmp/wkhtmltox.deb https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOPDF_TAG}/${WKHTMLTOPDF_PACKAGE_NAME} && \
-    echo "Menginstal paket wkhtmltopdf..." && \
-    # Instal paket; jika gagal karena dependensi, perbaiki dengan 'apt-get install -f -y'
-    dpkg -i /tmp/wkhtmltox.deb || apt-get install -f -y && \
-    rm /tmp/wkhtmltox.deb
-
-# Langkah 3: Symlink/Pintasan agar pdfkit dapat menemukan biner (PENTING!)
-# wkhtmltopdf mungkin terinstal di /usr/local/bin/ atau /usr/bin/. Symlink memastikan wkhtmltopdf
-# dapat diakses di path yang dicari oleh pdfkit.
-RUN if [ -f /usr/local/bin/wkhtmltopdf ]; then \
-        ln -s /usr/local/bin/wkhtmltopdf /usr/bin/wkhtmltopdf; \
-    elif [ -f /usr/bin/wkhtmltopdf ]; then \
-        echo "wkhtmltopdf sudah ada di /usr/bin"; \
-    else \
-        echo "wkhtmltopdf tidak ditemukan di path umum. Mencoba symlink dari /usr/local/bin/wkhtmltopdf."; \
-        ln -s /usr/local/bin/wkhtmltopdf /usr/bin/wkhtmltopdf; \
-    fi
-
-# Atur direktori kerja utama di dalam container
+# Atur direktori kerja
 WORKDIR /app
 
-# Salin file requirements.txt dan install semua dependensi Python
+# Salin dan instal dependensi Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Salin kode aplikasi inti Python (app.py)
+# Salin kode aplikasi
 COPY app.py .
 
-# Perintah yang akan dijalankan saat container dimulai (Menggunakan format JSON untuk CMD)
+# Ekspos port aplikasi
+EXPOSE 8080
+
+# Perintah yang akan dijalankan saat container dimulai (Menggunakan Gunicorn untuk aplikasi Flask/Web)
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "app:app"]
