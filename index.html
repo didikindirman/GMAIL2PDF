@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EML to PDF Converter (Render-Powered)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container-card {
+            max-width: 900px;
+            width: 95%;
+            padding: 2rem;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+        }
+        .btn-primary {
+            background-color: #4338ca; /* Indigo 700 */
+            color: white;
+            transition: background-color 0.2s;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background-color: #4f46e5; /* Indigo 600 */
+        }
+        .file-input-label {
+            cursor: pointer;
+            border: 2px dashed #a5b4fc; /* Indigo 300 */
+            background-color: #f5f3ff; /* Indigo 50 */
+            transition: all 0.2s;
+        }
+        .file-input-label:hover {
+            border-color: #4f46e5;
+            background-color: #eef2ff;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container-card">
+        <h1 class="text-3xl font-bold mb-2 text-gray-800 flex items-center">
+            <svg class="w-8 h-8 mr-3 text-indigo-600" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2V5z"></path><path d="M14 8a2 2 0 00-2 2v1a2 2 0 002 2h4a2 2 0 002-2v-1a2 2 0 00-2-2h-4z"></path><path d="M2 13a2 2 0 012-2h7a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2v-2z"></path></svg>
+            EML to PDF Converter
+        </h1>
+        <p class="text-gray-500 mb-6">Client-side tool to send EML files to the Python API running on Render for PDF conversion.</p>
+
+        <!-- Input Section -->
+        <div class="bg-indigo-50 p-6 rounded-xl border border-indigo-200 mb-6">
+            <div class="mb-4">
+                <label for="fileInput" class="block text-sm font-semibold text-gray-700 mb-2">1. Select EML File</label>
+                <label for="fileInput" id="fileInputLabel" class="file-input-label flex flex-col items-center justify-center p-6 rounded-lg text-gray-600">
+                    <svg class="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 015 5v1a2 2 0 01-2 2h-5l-4 4v-4H7z"></path></svg>
+                    <span class="text-base font-medium">Click to select an EML file</span>
+                    <span id="fileNameDisplay" class="text-xs mt-1 text-gray-500">No file selected yet.</span>
+                </label>
+                <input type="file" id="fileInput" accept=".eml" class="hidden" onchange="displayFileName(this.files)">
+            </div>
+            
+            <button id="processBtn" class="w-full px-4 py-3 text-lg font-semibold rounded-xl btn-primary disabled:opacity-50" onclick="processEmail()" disabled>
+                2. Convert to PDF
+            </button>
+        </div>
+        
+        <!-- WARNING: API Configuration Area -->
+        <div class="bg-yellow-50 p-4 rounded-lg mb-6 border border-yellow-300 text-sm text-yellow-800">
+            <strong>API Configuration:</strong> Ensure the URL below is updated with your correct Render URL.
+            <input type="text" id="conversionApiUrl" value="https://your-app-name.onrender.com/convert" 
+                   class="mt-2 w-full p-2 border border-yellow-400 rounded-lg font-mono text-xs bg-white focus:ring-yellow-500 focus:border-yellow-500" 
+                   placeholder="Enter your Render URL here"/>
+        </div>
+
+        <!-- Loading & Status -->
+        <div id="statusMessage" class="hidden flex items-center p-4 mb-4 text-sm text-indigo-700 bg-indigo-100 rounded-xl" role="alert">
+            <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span id="statusText">Sending EML file to Render for conversion...</span>
+        </div>
+
+        <!-- Results Display -->
+        <div id="resultsContainer" class="hidden">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-b pb-2">Conversion Result</h2>
+
+            <!-- Output Info -->
+            <div class="mb-6 bg-green-50 p-6 rounded-xl border border-green-300">
+                <h3 class="text-xl font-bold text-green-700 mb-3 flex items-center">
+                    <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                    PDF Successfully Created!
+                </h3>
+                <p class="text-sm font-medium text-gray-600">Generated PDF Filename:</p>
+                <p id="outputFilename" class="font-mono bg-white p-2 rounded text-gray-800 text-base break-all mt-1 border"></p>
+                
+                <a id="downloadLink" href="#" download class="inline-flex items-center justify-center mt-4 px-6 py-3 border border-transparent text-base font-medium rounded-lg shadow-sm text-white bg-green-600 hover:bg-green-700 transition duration-150 ease-in-out">
+                    ⬇️ Download PDF File
+                </a>
+            </div>
+        </div>
+        
+        <!-- Error Message -->
+        <div id="errorContainer" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative" role="alert">
+            <strong class="font-bold">Error!</strong>
+            <span class="block sm:inline" id="errorMessage"></span>
+        </div>
+    </div>
+
+    <script>
+        // --- UI UTILITIES ---
+
+        const fileInput = document.getElementById('fileInput');
+        const processBtn = document.getElementById('processBtn');
+        const statusDiv = document.getElementById('statusMessage');
+        const statusText = document.getElementById('statusText');
+        const errorDiv = document.getElementById('errorContainer');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const downloadLink = document.getElementById('downloadLink');
+        const outputFilename = document.getElementById('outputFilename');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const conversionApiUrl = document.getElementById('conversionApiUrl');
+
+        function setStatus(text, type = 'loading') {
+            // Hide all status elements
+            statusDiv.classList.add('hidden');
+            errorDiv.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+            processBtn.disabled = true;
+
+            if (type === 'loading') {
+                statusText.textContent = text;
+                statusDiv.classList.remove('hidden');
+                statusDiv.className = 'flex items-center p-4 mb-4 text-sm text-indigo-700 bg-indigo-100 rounded-xl';
+            } else if (type === 'error') {
+                document.getElementById('errorMessage').textContent = text;
+                errorDiv.classList.remove('hidden');
+                processBtn.disabled = false;
+            } else { // success or ready
+                processBtn.disabled = false;
+            }
+        }
+
+        function displayFileName(files) {
+            if (files.length > 0) {
+                const file = files[0];
+                fileNameDisplay.textContent = `File: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
+                processBtn.disabled = false;
+            } else {
+                fileNameDisplay.textContent = 'No file selected yet.';
+                processBtn.disabled = true;
+            }
+        }
+
+        function displayResults(filename, pdfBlob) {
+            setStatus(null, 'ready'); // Reset status, but re-enable button
+            
+            outputFilename.textContent = filename;
+            
+            // 2. Create object URL to allow file download
+            const url = URL.createObjectURL(pdfBlob);
+            downloadLink.href = url;
+            downloadLink.download = filename;
+            
+            resultsContainer.classList.remove('hidden');
+        }
+
+        // --- CORE WORKFLOW ---
+
+        async function processEmail() {
+            const file = fileInput.files[0];
+            const apiUrl = conversionApiUrl.value.trim();
+            
+            if (!file) {
+                setStatus("Please select an .eml file first.", 'error');
+                return;
+            }
+            if (!apiUrl || apiUrl.includes('your-app-name')) {
+                 setStatus("Please enter a valid Render URL before proceeding.", 'error');
+                 return;
+            }
+
+            setStatus('1. Reading EML file locally...');
+            
+            try {
+                // Read the EML file as a raw ArrayBuffer (binary data)
+                const emlBytes = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = (e) => reject(e);
+                    reader.readAsArrayBuffer(file);
+                });
+
+                setStatus('2. Sending EML binary data to Render API...');
+
+                // Send the raw EML content directly as the request body
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    body: emlBytes 
+                });
+
+                if (!response.ok) {
+                    // Try to read the JSON error message if the server sent one
+                    const errorText = await response.text();
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        throw new Error(errorJson.error || `Error ${response.status}: ${errorText}`);
+                    } catch {
+                        throw new Error(`Render server failed with status ${response.status}. Response: ${errorText.substring(0, 100)}...`);
+                    }
+                }
+                
+                // Get the filename from the Content-Disposition header (set by app.py)
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = "converted_email.pdf";
+                if (contentDisposition) {
+                    const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+                    if (filenameMatch && filenameMatch[1]) {
+                        filename = filenameMatch[1];
+                    }
+                }
+                
+                // Get the PDF binary data (Blob)
+                const pdfBlob = await response.blob();
+                
+                setStatus('3. PDF successfully received and ready to download.', 'success');
+                
+                // Display results and download link
+                displayResults(filename, pdfBlob);
+
+            } catch (error) {
+                console.error("Error during processing:", error);
+                setStatus(`Failed to process email: ${error.message}`, 'error');
+            }
+        }
+
+        // Enable the button on page load if a file is already selected (or for initial state)
+        window.onload = () => {
+             displayFileName(fileInput.files);
+        };
+    </script>
+</body>
+</html>
