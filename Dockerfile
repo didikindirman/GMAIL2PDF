@@ -1,38 +1,23 @@
 # Gunakan image Python 3.11 versi slim untuk ukuran yang lebih kecil
 FROM python:3.11-slim
 
-# --- PERBAIKAN KRITIS: Diperbarui ke versi wkhtmltopdf yang benar (0.12.6.1-2) ---
-# Tentukan TAG rilis wkhtmltopdf di GitHub. Tag adalah bagian URL yang berada sebelum nama file.
-ENV WKHTMLTOPDF_TAG 0.12.6.1-2
-# Nama file paket wkhtmltopdf yang lengkap.
-ENV WKHTMLTOPDF_PACKAGE_NAME wkhtmltox_0.12.6.1-2.bullseye_amd64.deb
-
 # Tambahkan ini untuk memastikan APT tidak menanyakan pertanyaan selama instalasi
 ENV DEBIAN_FRONTEND noninteractive
 
-# Langkah Kritis: Instalasi wkhtmltopdf secara manual
-# Perintah digabungkan untuk efisiensi Docker layer:
-# 1. Update APT dan instal wget, dan dependensi rendering dasar (fontconfig, libxtst6, libssl3, dll.).
-# 2. Download paket wkhtmltopdf (.deb) langsung dari GitHub menggunakan URL yang sudah dikoreksi.
-# 3. Instal paket .deb menggunakan dpkg. Jika dependensi hilang (yang biasanya terjadi),
-#    'apt-get install -f -y' akan dijalankan untuk menginstal semua dependensi runtime yang hilang.
+# Langkah Kritis: Instalasi wkhtmltopdf menggunakan APT
+# 1. Update APT dan instal dependensi rendering serta wkhtmltopdf secara langsung.
+# 2. wkhtmltopdf akan dipasang di path standar sistem (misalnya, /usr/bin/).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        wget \
+        wkhtmltopdf \
         fontconfig \
         libxrender1 \
         libxtst6 \
         xfonts-base \
         libssl3 && \
-    # URL Unduhan yang sudah diperbaiki
-    wget https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOPDF_TAG}/${WKHTMLTOPDF_PACKAGE_NAME} -O /tmp/wkhtmltox.deb && \
-    dpkg -i /tmp/wkhtmltox.deb || apt-get install -f -y && \
-    rm /tmp/wkhtmltox.deb && \
     # Bersihkan file cache APT
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    # --- PERBAIKAN PATH (PENTING) ---
-    # Buat symlink agar biner wkhtmltopdf dapat ditemukan di PATH standar
+    rm -rf /var/lib/apt/lists/*
 
 # Atur direktori kerja utama di dalam container
 WORKDIR /app
