@@ -1,121 +1,118 @@
-Automated Email Processing System: PDF Archiving and AI Summarization (Gmail & Google Apps Script)
+# 🚀 Advanced Email Automation System (Gmail, Drive, & Gemini AI)
 
-This project is an automated solution for archiving important emails from Gmail as PDF files in Google Drive, simultaneously generating smart summaries using the Gemini API, and logging the results into a Google Spreadsheet in real-time.
+## Email to PDF Archiving with Smart AI Summaries
 
-The system is split into two complementary parts:
+This project provides a comprehensive, automated solution for archiving important emails from **Gmail** as **PDF files** in **Google Drive**.  
+At the same time, it generates **intelligent summaries using Gemini AI** and logs the entire process to a **Google Spreadsheet** in real time.
 
-Client/Trigger (GAS): The Google Apps Script hosted on Google's platform, which monitors Gmail and orchestrates the entire workflow.
+---
 
-Web Service (Render Deployment): An external EML-to-PDF API (e.g., hosted on Render) that performs the complex email conversion task.
+## 💡 Key Features
 
-🎯 Key Features
+- ✅ **Automated Monitoring**  
+  Periodically scans the Gmail inbox (triggered by **Google Apps Script**) to find new, unread emails based on a configurable search query.
 
-Automated Monitoring: Scans the Gmail inbox periodically (set by the GAS time-based trigger) to find new, unread emails based on a configurable search query.
+- 📧 **Email to PDF Conversion**  
+  Uses an external web service (e.g., hosted on **Render**) to convert raw email content (`.eml` format) into a clean, archivable **PDF**.
 
-Email to PDF Conversion: Uses an external API hosted on Render (e.g., gmail2pdf.onrender.com) to convert raw email content (.eml format) into clean, archivable PDF files.
+- ☁️ **Drive Archiving**  
+  Saves the converted PDF files into a specified **Google Drive** folder.
 
-Drive Archiving: Saves the converted PDF files to a specific Google Drive folder.
+- 🧠 **Smart AI Summarization**  
+  Extracts clean plain text from the email and sends it to the **Gemini API** to generate a concise, unformatted summary.
 
-Smart AI Summarization: Extracts the clean, plain text from the email and sends it to the Google Gemini API to generate a concise, unformatted summary.
+- 📈 **Centralized Logging**  
+  Logs all email details (**Timestamp, Subject, Sender, Message ID**), a **clickable PDF link**, and the **AI summary** into a **Google Spreadsheet**.
 
-Centralized Logging: Logs email details (Timestamp, Subject, Sender, Message ID), the PDF link to Drive, and the AI summary result to a Google Spreadsheet.
+---
 
-⚙️ Program Workflow
+## ⚙️ Program Workflow
 
-The program runs through a structured sequence of steps after being triggered by Google Apps Script (GAS):
+The system runs through the following steps after being triggered by Google Apps Script (GAS):
 
-GAS Trigger: The Google Apps Script (GAS) is triggered automatically (e.g., every 2 hours) to start the email search process.
+1. **GAS Trigger**  
+   Google Apps Script is automatically triggered to start the email search process.
 
-New Email Search: GAS executes a search query in Gmail (e.g.: in:inbox is:unread newer_than:1d) to identify newly arrived and unread emails.
+2. **New Email Search**  
+   GAS executes a Gmail query to identify new, unread emails.
 
-Raw Content Extraction (.eml): GAS extracts the raw email content for conversion.
+3. **Raw Content Extraction**  
+   Raw email content is extracted in `.eml` format.
 
-PDF Conversion (Render Service): The raw .eml content is sent via an HTTP POST request to the external EML-to-PDF converter API on the Render platform.
+4. **PDF Conversion (Render Service)**  
+   The `.eml` content is sent to an external EML-to-PDF conversion API.
 
-Archive Storage: The resulting PDF blob is uploaded and saved to the specified Google Drive folder.
+5. **Archive Storage**  
+   The resulting PDF is uploaded and saved to the designated Google Drive folder.
 
-Text Extraction for AI: The clean plain text is retrieved for processing.
+6. **Text Extraction for AI**  
+   Clean plain text is retrieved from the email.
 
-AI Summarization (Gemini API): The email text is sent to the Gemini API (gemini-2.5-flash) to generate a concise text summary.
+7. **AI Summarization (Gemini API)**  
+   The email text is sent to Gemini API to generate a summary.
 
-Spreadsheet Logging: The final data (Timestamp, Sender, Subject, PDF Link, AI Summary) is logged to the Google Spreadsheet.
+8. **Spreadsheet Logging**  
+   All final data (Subject, PDF Link, AI Summary, timestamps, etc.) is logged in Google Sheets.
 
-Marking as Complete: The original email is marked as read in Gmail.
+9. **Mark as Complete**  
+   The original email is marked as **read** in Gmail.
 
-🛠️ Setup Instructions (Google Apps Script Side)
+---
 
-The client logic is stored in the Google Apps Script/GMAIL2PDF.txt file in this repository.
+## 🛠️ Google Apps Script Setup Guide
 
-Step 1: Create the GAS Project
+The client logic is contained in the file:
 
-Go to Google Drive and click New -> More -> Google Apps Script. A new project editor window will open.
 
-A default file named Code.gs will exist. Click the filename (usually Code.gs) in the file explorer panel on the left.
+---
 
-Rename this file to GMAIL2PDF.gs.
+### Step 1: Create a New GAS Project
 
-Step 2: Copy the Script Content
+1. Go to **Google Drive**
+2. Click **New → More → Google Apps Script**
+3. A new project editor window will open
+4. Rename the default file `Code.gs` to:
 
-Open the Google Apps Script/GMAIL2PDF.txt file from this repository.
 
-Select and copy the entire content (Ctrl+A / Cmd+A, then Ctrl+C / Cmd+C).
+---
 
-Paste the content into the GMAIL2PDF.gs file in your Google Apps Script editor, replacing any existing code.
+### Step 2: Copy the Script Content
 
-Step 3: Configure the Script
+1. Open the file `Google Apps Script/GMAIL2PDF.txt` from this repository
+2. Copy the **entire content**
+3. Paste it into `GMAIL2PDF.gs`, replacing any existing code
 
-In the GMAIL2PDF.gs file, locate the ESSENTIAL CONFIGURATION section near the top and replace the placeholder values with your own:
+---
 
-Constant
+### Step 3: Configure the Script (Mandatory)
 
-Description
+Inside `GMAIL2PDF.gs`, locate the **ESSENTIAL CONFIGURATION** section and update the following variables:
 
-Your Value Example
+| Constant | Description | Example Value (Replace This) |
+|--------|------------|-------------------------------|
+| `GEMINI_API_KEY` | Your Google AI API key | `AIzaSy...` |
+| `SHEETS_LINK` | Full URL to target Google Spreadsheet | `https://docs.google.com/spreadsheets/...` |
+| `DRIVE_FOLDER_LINK` | Full URL to target Google Drive folder | `https://drive.google.com/drive/folders/...` |
+| `RENDER_SERVER_BASE_URL` | Base URL of EML-to-PDF service | `https://gmail2pdf.onrender.com` |
+| `EMAIL_SEARCH_QUERY` | Gmail search query | `in:inbox is:unread newer_than:1d` |
 
-GEMINI_API_KEY
+> ⚠️ **Important**  
+> Make sure to use **full, shareable URLs**, not just raw IDs.
 
-Your Google AI API key.
+---
 
-AIzaSy...
+### Step 4: Set the Time-Driven Trigger
 
-SHEETS_LINK
+1. In the GAS editor, click the **⏰ Triggers (Alarm Clock)** icon on the left sidebar
+2. Click **+ Add Trigger**
+3. Configure the trigger:
+   - **Function to run:** `saveRecentEmlToDrive`
+   - **Event source:** Time-driven
+   - **Time-based trigger:** Select your preferred interval (e.g., Hour timer)
+4. Click **Save**
+5. Grant all required permissions for Gmail, Drive, Sheets, and external APIs
 
-Full URL of your target Google Spreadsheet.
+---
 
-https://docs.google.com/spreadsheets/...
-
-DRIVE_FOLDER_LINK
-
-Full URL of your target Google Drive folder.
-
-https://drive.google.com/drive/folders/...
-
-RENDER_SERVER_BASE_URL
-
-The base URL of your deployed EML-to-PDF service (e.g., on Render).
-
-https://gmail2pdf.onrender.com
-
-EMAIL_SEARCH_QUERY
-
-Gmail search query to filter target emails.
-
-'in:inbox is:unread newer_than:1d'
-
-Step 4: Set the Time-Driven Trigger
-
-In the GAS editor, click the Alarm Clock icon (Triggers) on the left sidebar.
-
-Click + Add Trigger.
-
-Configure the trigger settings:
-
-Choose which function to run: saveRecentEmlToDrive
-
-Choose deployment to run: Head
-
-Select event source: Time-driven
-
-Select type of time based trigger: Choose your desired interval (e.g., Hour timer).
-
-Click Save. You will be prompted to grant permissions to the script to access Gmail, Drive, and external APIs. Accept these permissions.
+✅ **Setup Complete!**  
+Your email automation system will now continuously archive emails, generate AI summaries, and log everything automatically.
