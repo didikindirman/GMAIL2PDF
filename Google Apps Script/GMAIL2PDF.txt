@@ -1,0 +1,344 @@
+// =========================================================================
+// === ESSENTIAL CONFIGURATION ===
+// =========================================================================
+
+// Replace this with your Gemini API Key
+const GEMINI_API_KEY = 'PUT YOUR GEMINI API'; 
+
+// Replace this with the LINK to your Google Spreadsheet
+const SHEETS_LINK = 'PUT YOUR SPREADSHEET LINK'; 
+const SHEET_NAME = 'AI_Summaries';
+
+// Replace this with  the LINK to your Google Drive Folder
+const DRIVE_FOLDER_LINK = 'PUT YOUR GOOGLE DRIVE FOLDER LINK'; 
+
+// === EMAIL SEARCH CONFIGURATION ===
+const EMAIL_SEARCH_QUERY = 'in:inbox is:unread newer_than:1d';
+const MAX_THREADS_TO_PROCESS = 10;
+
+// === EXTERNAL SERVICE CONFIGURATION ===
+const RENDER_SERVER_BASE_URL = "PUT YOUR URL CONVERTER";
+const CONVERSION_ENDPOINT = RENDER_SERVER_BASE_URL + "/convert";
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY);
+
+// =========================================================================
+
+
+/**
+ * Extracts the file or folder ID from a full Google Drive/Sheets URL.
+ * @param {string} link The full URL of the Google Sheet or Drive Folder.
+ * @returns {string} The extracted ID or null if not found.
+ */
+function extractIdFromLink(link) {
+  if (!link || typeof link !== 'string') {
+      Logger.log("[ID PARSE ERROR] Invalid or empty link provided.");
+      return null;
+  }
+
+  // Pattern for Sheet ID: /d/ID/edit
+  const sheetMatch = link.match(/\/d\/([a-zA-Z0-9_-]+)\//);
+  if (sheetMatch && sheetMatch[1]) {
+    return sheetMatch[1];
+  }
+  
+  // Pattern for Drive Folder ID: /folders/ID
+  const driveMatch = link.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (driveMatch && driveMatch[1]) {
+    return driveMatch[1];
+  }
+  
+  Logger.log(`[ID PARSE ERROR] Failed to extract ID from link: ${link}`);
+  return null;
+}
+
+
+/**
+ * Main function to search for recent emails, convert them to PDF, 
+ * summarize with AI, and log the results.
+ * This function should be called by a time-driven trigger.
+ */
+function saveRecentEmlToDrive() {
+  Logger.log("--- 1. Starting Execution (Using Link Configuration) ---");
+  Logger.log(`[VERIFY SEARCH] Query: "${EMAIL_SEARCH_QUERY}"`);
+  
+  const threads = GmailApp.search(EMAIL_SEARCH_QUERY, 0, MAX_THREADS_TO_PROCESS); 
+
+  if (threads.length === 0) {
+    Logger.log("No new emails found matching the criteria.");
+    return;
+  }
+
+  Logger.log(`Found ${threads.length} threads to process.`);
+
+  threads.forEach(thread => {
+    // Get the latest message in the thread
+    const message = thread.getMessages().pop(); 
+    
+    if (message) {
+      processAndSaveMessage(message);
+    }
+    // Mark as read after processing
+    thread.markRead(); 
+  });
+  
+  Logger.log("Execution finished.");
+}
+
+/**
+ * Complete workflow: Get EML -> Convert to PDF -> Summarize with AI -> Log to Spreadsheet.
+ * @param {GmailMessage} message The Gmail message object.
+ */
+function processAndSaveMessage(message) {
+  const subject = message.getSubject();
+  const messageId = message.getId();
+  const sender = message.getFrom();
+
+  Logger.log(`Processing message with Subject: "${subject}"`);
+
+  // Get plain text content for AI summary
+  const emailTextContent = message.getPlainBody(); 
+  if (!emailTextContent || emailTextContent.length === 0) {
+    Logger.log(`[SKIP] Message ID ${messageId} has empty text content. Skipping process.`);
+    return;
+  }
+
+  let pdfName = "Conversion Failed";
+  let pdfUrl = "";
+  let aiSummary = "[ERROR] AI summary failed to process.";
+  
+  // Extract Drive Folder ID
+  const folderId = extractIdFromLink(DRIVE_FOLDER_LINK);
+  if (!folderId) {
+      aiSummary = "[ERROR] Failed to get Drive Folder ID from link. Cannot save PDF.";
+      logToSpreadsheet(new Date().toLocaleString(), messageId, sender, subject, pdfName, aiSummary, pdfUrl);
+      return;
+  }
+
+  try {
+    // 1. Get Raw Email Content (EML)
+    const emailRawContent = message.getRawContent();
+    
+    // 2. Prepare Filename and Call Conversion API for PDF Blob
+    const cleanSubject = subject.replace(/[^a-z0-9]/gi, '_').substring(0, 50);
+    const emlFilename = `EML_${cleanSubject}_${messageId}.eml`;
+    
+    Logger.log(`Calling conversion API at: ${CONVERSION_ENDPOINT}`);
+    const pdfBlob = callRenderApi(emailRawContent, emlFilename);
+
+    if (pdfBlob) {
+        // 3. Save PDF File to Google Drive (Using the extracted Folder ID)
+        const targetFolder = DriveApp.getFolderById(folderId); 
+        const pdfFile = targetFolder.createFile(pdfBlob); 
+        Logger.log(`[SUCCESS] PDF file saved to Drive. Name: ${pdfFile.getName()}, ID: ${pdfFile.getId()}`);
+        pdfName = pdfFile.getName();
+        pdfUrl = pdfFile.getUrl();
+    } else {
+        Logger.log(`[PDF FAILURE] PDF conversion failed, but AI summary will continue.`);
+    }
+
+    // 4. Summarize with Gemini API (Using Plain Text Content)
+    const aiPrompt = `Provide a concise, single-paragraph summary of the following email content. Do not include any introductory phrases, titles, markdown, or formatting wrappers. The output must be pure, unformatted summary paragraph text, and nothing else. Write the response in English.`;
+    aiSummary = callGeminiApi(emailTextContent, aiPrompt);
+    Logger.log(`AI summary successfully generated.`); 
+
+  } catch (e) {
+    Logger.log(`[ERROR] Failed to process message ${messageId}: ${e.toString()}`);
+    aiSummary = `[TOTAL FAILURE] Error during processing: ${e.toString()}`;
+  } finally {
+    // 5. Log to Google Spreadsheet
+    const currentDate = new Date().toLocaleString(); 
+    logToSpreadsheet(currentDate, messageId, sender, subject, pdfName, aiSummary, pdfUrl);
+  }
+}
+
+/**
+ * Calls the external EML-to-PDF service to convert the EML content.
+ * Uses manual multipart payload creation for compatibility.
+ */
+function callRenderApi(emailRawContent, emlFilename) {
+  if (!emailRawContent || typeof emailRawContent !== 'string' || emailRawContent.length === 0) {
+      Logger.log("[RAW CONTENT ERROR] Invalid or empty raw email content.");
+      return null;
+  }
+
+  try {
+    const boundary = '----Boundary' + Math.random().toString(16).slice(2);
+    
+    // Manual multipart form data construction
+    let payload = `--${boundary}\r\n`;
+    payload += `Content-Disposition: form-data; name="eml_file"; filename="${emlFilename}"\r\n`;
+    payload += 'Content-Type: message/rfc822\r\n\r\n';
+    
+    payload += emailRawContent; 
+    payload += `\r\n--${boundary}--\r\n`;
+
+    const options = {
+      method: 'post',
+      contentType: 'multipart/form-data; boundary=' + boundary,
+      payload: payload,
+      muteHttpExceptions: true,
+      headers: { 'Accept': 'application/pdf' }
+    };
+
+    const response = UrlFetchApp.fetch(CONVERSION_ENDPOINT, options);
+    
+    if (response.getResponseCode() !== 200) {
+      Logger.log(`[API ERROR] GMail2PDF Service failed with code ${response.getResponseCode()}. Response: ${response.getContentText()}`);
+      return null;
+    }
+
+    const pdfBlob = response.getBlob();
+    const pdfFilename = emlFilename.replace(/\.eml$/i, '.pdf'); 
+    
+    return pdfBlob.setName(pdfFilename);
+
+  } catch (e) {
+    Logger.log(`[EXCEPTION] during Render API call: ${e.toString()}`);
+    return null;
+  }
+}
+
+/**
+ * Helper function to perform API calls with exponential backoff retry.
+ */
+function fetchWithRetry(url, options, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = UrlFetchApp.fetch(url, options);
+      const responseCode = response.getResponseCode();
+
+      if (responseCode === 200) {
+        return response; // Success
+      } 
+      
+      const responseText = response.getContentText();
+      Logger.log(`[API ERROR] Attempt ${attempt}: Status ${responseCode}, Body: ${responseText}`);
+
+      if (attempt === maxAttempts) {
+        throw new Error(`API call failed after ${maxAttempts} attempts. Status: ${responseCode}, Body: ${responseText}`);
+      }
+
+    } catch (e) {
+      Logger.log(`[EXCEPTION] Attempt ${attempt} failed: ${e.toString()}`);
+      if (attempt === maxAttempts) {
+        throw new Error(`Gemini API call failed after ${maxAttempts} attempts: ${e.toString()}`);
+      }
+    }
+    
+    // Wait using exponential backoff: 2^attempt seconds
+    const delay = Math.pow(2, attempt) * 1000;
+    Utilities.sleep(delay);
+  }
+}
+
+/**
+ * Calls the Gemini API to analyze the plain text content and generate a summary.
+ */
+function callGeminiApi(textContent, prompt) {
+  if (GEMINI_API_KEY === 'GANTI_DENGAN_KUNCI_API_GEMINI_ANDA') {
+    return "[ERROR] Please replace GEMINI_API_KEY with a valid API key.";
+  }
+    
+  Logger.log(`Calling Gemini API for text analysis.`);
+  
+  // Combine the prompt with the email content
+  const userQuery = `${prompt}\n\n--- EMAIL CONTENT TO SUMMARIZE ---\n${textContent}`;
+
+  const payload = { contents: [{ parts: [{ text: userQuery }] }] };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+  };
+
+  try {
+    const response = fetchWithRetry(GEMINI_API_URL, options);
+    const responseText = response.getContentText();
+
+    const json = JSON.parse(responseText);
+    let summary = json.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (summary) {
+      // String cleanup logic (Removing unnecessary prefixes/suffixes)
+      let cleanedSummary = summary.trim();
+      cleanedSummary = cleanedSummary.replace(/^{\s*summary\s*=\s*/i, '').replace(/\}$/, '');
+      cleanedSummary = cleanedSummary.replace(/^{\s*/, '').replace(/\s*\}$/, '');
+      return cleanedSummary.trim();
+    } else {
+      Logger.log(`[GEMINI PARSE ERROR] Could not find summary text in response.`);
+      Logger.log(`Full Response: ${responseText}`);
+      return "[PARSE ERROR] Failed to parse summary.";
+    }
+
+  } catch (e) {
+    Logger.log(`[GEMINI EXCEPTION] API call failed after retries: ${e.toString()}`);
+    return `[EXCEPTION] Failed to call Gemini API: ${e.message || e.toString()}`;
+  }
+}
+
+/**
+ * Logs summary data to the Google Spreadsheet, using the extracted Spreadsheet ID.
+ */
+function logToSpreadsheet(date, messageId, sender, subject, pdfName, summary, pdfUrl) {
+  
+  // Extract Spreadsheet ID from the link
+  const spreadsheetId = extractIdFromLink(SHEETS_LINK);
+  if (!spreadsheetId) {
+    Logger.log("[SPREADSHEET ERROR] Failed to get Spreadsheet ID from link.");
+    return;
+  }
+  
+  try {
+    // Use the extracted ID
+    const ss = SpreadsheetApp.openById(spreadsheetId);
+    const sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+
+    const headers = ["Timestamp", "Email ID", "Email From", "Email Subject", "PDF Link", "AI Summary"];
+
+    // 1. Set Header Row and Formatting
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(headers);
+      
+      const headerRange = sheet.getRange(1, 1, 1, headers.length);
+      headerRange.setFontWeight('bold');
+      headerRange.setVerticalAlignment('middle');
+      headerRange.setHorizontalAlignment('center');
+      
+      // 2. Set width and wrapping for Summary column (Column F / index 6)
+      const SUMMARY_COLUMN_INDEX = 6;
+      sheet.setColumnWidth(SUMMARY_COLUMN_INDEX, 500); 
+      
+      const summaryColumnRange = sheet.getRange(2, SUMMARY_COLUMN_INDEX, sheet.getMaxRows(), 1); 
+      summaryColumnRange.setWrap(true);
+      summaryColumnRange.setVerticalAlignment('top');
+      
+      sheet.getRange(1, 1, sheet.getMaxRows(), 5).setHorizontalAlignment('center');
+      sheet.getRange(1, 1, sheet.getMaxRows(), 5).setVerticalAlignment('middle');
+    }
+    
+    // Determine the PDF cell content.
+    let pdfLinkCell;
+    if (pdfUrl && pdfUrl !== "") {
+      pdfLinkCell = `=HYPERLINK("${pdfUrl}", "View PDF")`;
+    } else {
+      pdfLinkCell = pdfName; 
+    }
+
+    // 3. Data to be logged
+    const row = [
+      date, 
+      messageId,
+      sender,
+      subject, 
+      pdfLinkCell, 
+      summary
+    ];
+    
+    sheet.appendRow(row);
+    Logger.log("Summary data successfully logged to Spreadsheet.");
+
+  } catch (e) {
+    Logger.log(`[SPREADSHEET ERROR] Failed to write to Spreadsheet: ${e.toString()}`);
+  }
+}
