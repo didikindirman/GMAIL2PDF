@@ -13,7 +13,7 @@ const SHEET_NAME = 'AI_Summaries';
 const DRIVE_FOLDER_LINK = 'PUT YOUR GOOGLE DRIVE FOLDER LINK'; 
 
 // === EMAIL SEARCH CONFIGURATION ===
-const EMAIL_SEARCH_QUERY = 'in:inbox is:unread newer_than:1d';
+const EMAIL_SEARCH_QUERY = 'in:inbox is:unread newer_than:1d category:primary';
 const MAX_THREADS_TO_PROCESS = 10;
 
 // === EXTERNAL SERVICE CONFIGURATION ===
